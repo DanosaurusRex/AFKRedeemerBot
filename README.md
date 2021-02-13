@@ -2,7 +2,6 @@
 
 ## Summary
 Runs a persistent Telegram bot, which allows users to register for a service that will periodically scan the AFK Arena fandom wiki page for new gift codes. When new codes are found, they will be automatically redeemed for all subscribed users.
-Users register for the service by messaging t.me/AfkRedeemerBot
 
 ## Valid commands
 - /register <UID> - this will trigger a verification mail sent to the ingame mailbox
