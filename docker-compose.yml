@@ -5,6 +5,8 @@ services:
     volumes:
       - .:/usr/src/app
       - data:/usr/src/app/data
+      - logs:/usr/src/app/logs
 
 volumes:
   data:
+  logs:

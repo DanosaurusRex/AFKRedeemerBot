@@ -6,15 +6,13 @@ from datetime import datetime
 from telegram.ext import Updater, CommandHandler, Filters, MessageHandler
 
 from config import Config, Messages
-from functions import scrape_wiki, post_login, post_verification, redeem_user_codes, scheduled_scan
 
 if not os.path.exists(Config.DATA_DIR):
-    print(f'Creating {Config.DATA_DIR}')
     os.mkdir(Config.DATA_DIR)
     if not os.path.exists(os.path.dirname(Config.LOG_URI)):
-        print(f'Creating {os.path.dirname(Config.LOG_URI)}')
         os.mkdir(os.path.dirname(Config.LOG_URI))
 
+from functions import scrape_wiki, post_login, post_verification, redeem_user_codes, scheduled_scan
 from db import Session, User, Code
 
 logging.basicConfig(
@@ -134,6 +132,8 @@ def verify(update, context):
         return
 
     session.add(user)
+    session.commit()
+
     if context.user_data.get('user'):
         del context.user_data['user']
     if context.user_data.get('mail_sent'):

@@ -1,18 +1,19 @@
 import os
+basedir = os.path.abspath(os.path.dirname(__file__))
 
 class Config():
     DATA_DIR = os.environ.get('DATA_DIR') or \
-        os.path.join('.', 'data')
+        os.path.join(basedir, 'data')
 
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
         'sqlite:///' + os.path.join(DATA_DIR, 'redeemer.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     TOKEN_URI = os.environ.get('TOKEN_URI') or \
-        os.path.join('.', 'token')
+        os.path.join(basedir, 'token')
 
     LOG_URI = os.environ.get('LOG_URI') or \
-        os.path.join(DATA_DIR, 'logs', 'debug.log')
+        os.path.join(basedir, 'logs', 'debug.log')
 
     WIKI_URL = 'https://afk-arena.fandom.com/wiki/Redemption_Code'
     SEND_MAIL_URL = 'https://cdkey.lilith.com/api/send-mail'
