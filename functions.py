@@ -27,14 +27,14 @@ def scrape_wiki(session) -> int:
             for code in matches:
                 code = code.lower()
                 record = Code(code=code, reward=reward)
-                logging.debug(f'Found code: {record}')
+                logging.info(f'Found code: {record}')
                 if session.query(Code).filter(Code.code == code).count():
-                    logging.debug(f'Code {record} already in db.')
+                    logging.info(f'Code {record} already in db.')
                     continue
-                logging.debug(f'Adding Code {record} to db')
+                logging.info(f'Adding Code {record} to db')
                 records.append(record)
     if records:
-        logging.debug(f'Adding codes to DB: {records}')
+        logging.info(f'Adding codes to DB: {records}')
         session.add_all(records)
     return len(records)
 
@@ -67,7 +67,7 @@ def generate_payload(endpoint, *args, **kwargs) -> dict:
 def send_request(url, *args, **kwargs):
     endpoint = url.split('/')[-1]
     payload = generate_payload(endpoint, **kwargs)
-    logging.debug(f'Posting {endpoint} payload: {payload}')
+    logging.info(f'Posting {endpoint} payload: {payload}')
     cookies = kwargs.get('cookies')
     return requests.post(url=url, json=payload, cookies=cookies)
 
@@ -83,7 +83,7 @@ def get_cookie_expiry(cookies):
 def post_login(user) -> bool:
     response = send_request(Config.SEND_MAIL_URL, uid=user.uid)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
-    logging.debug(f'Response received: {decoded}')
+    logging.info(f'Response received: {decoded}')
     if decoded.get('ret') == 0:
         user.cookie = response.cookies
         user.cookie_expiry = get_cookie_expiry(user.cookie)
@@ -94,7 +94,7 @@ def post_login(user) -> bool:
 def post_verification(user, verification) -> str:
     response = send_request(Config.VERIFY_CODE_URL, uid=user.uid, code=verification, cookies=user.cookie)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
-    logging.debug(f'Response received: {decoded}')
+    logging.info(f'Response received: {decoded}')
     info = decoded.get('info')
     if info == 'ok':
         cookie = user.cookie.copy()  # Dumb workaround as SQLAlchemy does not recognise if an existing PickleType is updated.
@@ -107,7 +107,7 @@ def post_verification(user, verification) -> str:
 def post_consume(user, code) -> str:
     response = send_request(Config.CONSUME_URL, uid=user.uid, code=code.code, cookies=user.cookie)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
-    logging.debug(f'Response received: {decoded}')
+    logging.info(f'Response received: {decoded}')
     info = decoded.get('info')
     return info
 
@@ -119,7 +119,7 @@ def redeem_user_codes(session, user):
     for code in codes:
         info = post_consume(user, code)
         if info in ('err_cdkey_expired', 'err_cdkey_record_not_found'):
-            logging.debug(f'Code: {code}, Error: {info}')
+            logging.info(f'Code: {code}, Error: {info}')
             code.expired = True
             session.add(code)
             continue
@@ -128,6 +128,6 @@ def redeem_user_codes(session, user):
         session.add(user)
 
         if info == 'ok':
-            logging.debug(f'Code: {code} successfully redeemed.')
+            logging.info(f'Code: {code} successfully redeemed.')
             successfully_redeemed.append(code.code)
     return successfully_redeemed

@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from telegram.ext import Updater, CommandHandler
 
@@ -6,7 +7,12 @@ from config import Config, Messages
 from functions import scrape_wiki, post_login, post_verification, redeem_user_codes
 from db import Session, User, Code
 
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+logging.basicConfig(
+    handlers=[RotatingFileHandler('./logs/tg_bot.log', maxBytes=10000, backupCount=10)],
+    level=logging.DEBUG,
+    format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
+    datefmt='%Y-%m-%dT%H:%M:%S'
+)
 
 
 def start(update, context):
@@ -31,7 +37,7 @@ def scan(update, context):
                                         Code.expired != True).all()
     if codes:
         if user.cookie_expiry < datetime.utcnow():
-            logging.debug(f'Unredeemed codes found, but login has expired for {user}')
+            logging.info(f'Unredeemed codes found, but login has expired for {user}')
             update.message.reply_text(Messages.LOGIN_EXPIRED)
             session.close()
             return
@@ -65,7 +71,7 @@ def register(update, context):
     if valid:
         context.user_data['user'] = user
         context.user_data['mail_sent'] = True
-        logging.debug(f'Registration started for UID: {uid}')
+        logging.info(f'Registration started for UID: {uid}')
         update.message.reply_text(Messages.WELCOME.format(uid))
     else:
         update.message.reply_text(f'UID {uid} not found. Please try again.')
@@ -86,7 +92,7 @@ def login(update, context):
     session.commit()
     session.close()
     context.user_data['mail_sent'] = True
-    logging.debug(f'Login started for UID: {user.uid}')
+    logging.info(f'Login started for UID: {user.uid}')
     update.message.reply_text(Messages.WELCOME.format(user.uid))
 
 

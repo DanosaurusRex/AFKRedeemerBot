@@ -3,7 +3,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 
 class Config():
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(basedir, 'redeemer.db')
+        'sqlite:///' + os.path.join(basedir, 'data', 'redeemer.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     TOKEN_URI = os.environ.get('TOKEN_URI') or \
@@ -17,14 +17,14 @@ class Config():
 
 class Messages():
     WELCOME = (
-    """Hello, user {}.\n
-    A verification code has been sent to your ingame mailbox.
-    Please respond with /verify <verification code> to complete login."""
+        'Hello, user {}.\n' +
+        'A verification code has been sent to your ingame mailbox.\n' +
+        'Please respond with /verify <verification code> to complete login.'
     )
 
     ALREADY_REGISTERED = (
-    """You have already registered for this service.
-    Please use /login if you wish to login."""
+        'You have already registered for this service.\n' +
+        'Please use /login if you wish to login.'
     )
 
     VERIFY_RESPONSES = {
@@ -34,24 +34,23 @@ class Messages():
     }
 
     INSTRUCTIONS = (
-    """I will automatically redeem gift codes I find for AFK Arena.\n
-    The following commands are available:
-    /register <UID> - Register for the service
-    /verify <verification code> - Provide verification for login when prompted
-    /login - Prompt a new verification code when needed"""
+        'I will automatically redeem gift codes I find for AFK Arena.\n' +
+        'The following commands are available:\n' +
+        '/verify <verification code> - Provide verification for login when prompted\n' +
+        '/login - Prompt a new verification code when needed'
     )
 
     LOGIN_EXPIRED = (
-        """There are new codes to redeem but your login has expired.
-        Please use /login to login and redeem them."""
+        'There are new codes to redeem but your login has expired.\n' +
+        'Please use /login to login and redeem them'
     )
 
     NOT_REGISTERED = (
-        """You are not registered for this service.
-        Please use /register <UID> to begin."""
+        'You are not registered for this service.\n' +
+        'Please use /register <UID> to begin.'
     )
 
     CODES_REDEEMED = (
-        """The following code(s) were successfully redeemed:
-        {}"""
+        'The following code(s) were successfully redeemed:\n' +
+        '{}'
     )
