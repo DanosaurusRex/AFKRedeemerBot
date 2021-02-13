@@ -84,7 +84,7 @@ def get_cookie_expiry(cookies):
 def post_login(user) -> bool:
     response = send_request(Config.SEND_MAIL_URL, uid=user.uid)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
-    logging.info(f'Response received: {decoded}')
+    logging.info(f'Response received: {decoded["info"]}')
     if decoded.get('ret') == 0:
         user.cookie = response.cookies
         user.cookie_expiry = get_cookie_expiry(user.cookie)
@@ -95,8 +95,8 @@ def post_login(user) -> bool:
 def post_verification(user, verification) -> str:
     response = send_request(Config.VERIFY_CODE_URL, uid=user.uid, code=verification, cookies=user.cookie)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
-    logging.info(f'Response received: {decoded}')
     info = decoded.get('info')
+    logging.info(f'Response received: {info}')
     if info == 'ok':
         cookie = user.cookie.copy()  # Dumb workaround as SQLAlchemy does not recognise if an existing PickleType is updated.
         cookie.update(response.cookies)
@@ -138,6 +138,7 @@ def scan_n_redeem(updater):
     session = Session()
 
     scrape_wiki(session)
+    session.commit()
 
     users = session.query(User).all()
     for user in users:
@@ -159,8 +160,7 @@ def scan_n_redeem(updater):
             message = Messages.CODES_REDEEMED.format('\n'.join(redeemed))
             updater.bot.send_message(chat_id=user.chat_id, text=message)
 
-    if session.dirty:
-        session.commit()
+    session.commit()
     session.close()
 
 

@@ -36,8 +36,7 @@ def scan(update, context):
         return
 
     new = scrape_wiki(session)
-    if session.dirty:
-        session.commit()
+    session.commit()
     update.message.reply_text(f'{new} codes found.')
 
     codes = session.query(Code).filter(~Code.used_by.contains(user),
@@ -50,8 +49,7 @@ def scan(update, context):
             return
         redeem_user_codes(session, user)
 
-    if session.dirty:
-        session.commit()
+    session.commit()
     session.close()
 
 
@@ -63,6 +61,8 @@ def register(update, context):
         update.message.reply_text(Messages.ALREADY_REGISTERED)
         session.close()
         return
+
+    session.close()
 
     try:
         uid = int(context.args[0])
