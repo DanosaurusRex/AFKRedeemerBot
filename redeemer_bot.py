@@ -1,19 +1,28 @@
 import logging
 from logging.handlers import RotatingFileHandler
+import threading
+import os
 from datetime import datetime
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import Updater, CommandHandler, Filters, MessageHandler
 
 from config import Config, Messages
-from functions import scrape_wiki, post_login, post_verification, redeem_user_codes
+from functions import scrape_wiki, post_login, post_verification, redeem_user_codes, scheduled_scan
+
+if not os.path.exists(Config.DATA_DIR):
+    print(f'Creating {Config.DATA_DIR}')
+    os.mkdir(Config.DATA_DIR)
+    if not os.path.exists(os.path.dirname(Config.LOG_URI)):
+        print(f'Creating {os.path.dirname(Config.LOG_URI)}')
+        os.mkdir(os.path.dirname(Config.LOG_URI))
+
 from db import Session, User, Code
 
 logging.basicConfig(
-    handlers=[RotatingFileHandler('./logs/tg_bot.log', maxBytes=10000, backupCount=10)],
+    handlers=[RotatingFileHandler(Config.LOG_URI, maxBytes=10000, backupCount=10)],
     level=logging.DEBUG,
     format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
     datefmt='%Y-%m-%dT%H:%M:%S'
 )
-
 
 def start(update, context):
     update.message.reply_text(Messages.INSTRUCTIONS)
@@ -50,6 +59,13 @@ def scan(update, context):
 
 def register(update, context):
     """Respond to /register command and prompt to /verify."""
+    chat_id = update.effective_chat.id
+    session = Session()
+    if session.query(User).filter(User.chat_id == chat_id).count() > 0:
+        update.message.reply_text(Messages.ALREADY_REGISTERED)
+        session.close()
+        return
+
     try:
         uid = int(context.args[0])
     except IndexError:
@@ -57,13 +73,6 @@ def register(update, context):
         return
     except ValueError:
         update.message.reply_text('UID must be a number.')
-        return
-
-    chat_id = update.effective_chat.id
-    session = Session()
-    if session.query(User).filter(User.chat_id == chat_id).count() > 0:
-        update.message.reply_text(Messages.ALREADY_REGISTERED)
-        session.close()
         return
 
     user = User(uid=uid, chat_id=chat_id)
@@ -90,10 +99,10 @@ def login(update, context):
     post_login(user)
     session.add(user)
     session.commit()
-    session.close()
-    context.user_data['mail_sent'] = True
     logging.info(f'Login started for UID: {user.uid}')
     update.message.reply_text(Messages.WELCOME.format(user.uid))
+    session.close()
+    context.user_data['mail_sent'] = True
 
 
 def verify(update, context):
@@ -154,10 +163,14 @@ def main():
     dispatcher.add_handler(CommandHandler('verify', verify))
     dispatcher.add_handler(CommandHandler('scan', scan))
     dispatcher.add_handler(CommandHandler('login', login))
-    dispatcher.add_handler(CommandHandler('start', start))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, start))
 
-   # Start the Bot
+    # Start the Bot
     updater.start_polling()
+
+    # Start the scheduled scan thread
+    scan_schedule = threading.Thread(target=scheduled_scan, args=(updater,), daemon=True)
+    scan_schedule.start()
 
     # Block until you press Ctrl-C or the process receives SIGINT, SIGTERM or
     # SIGABRT. This should be used most of the time, since start_polling() is

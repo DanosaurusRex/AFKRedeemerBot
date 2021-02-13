@@ -2,11 +2,12 @@ import logging
 import requests
 import re
 import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
 from bs4 import BeautifulSoup
 
-from config import Config
+from config import Config, Messages
 from db import Session, Code, User
 
 
@@ -131,3 +132,42 @@ def redeem_user_codes(session, user):
             logging.info(f'Code: {code} successfully redeemed.')
             successfully_redeemed.append(code.code)
     return successfully_redeemed
+
+
+def scan_n_redeem(updater):
+    session = Session()
+
+    scrape_wiki(session)
+
+    users = session.query(User).all()
+    for user in users:
+        logging.info(f'Checking for unredeemed codes for {user}')
+        unredeemed = session.query(Code).filter(~Code.used_by.contains(user),
+                                                Code.expired != True).all()
+        if not unredeemed:
+            logging.info(f'No unredeemed codes for {user}')
+            continue
+
+        if user.cookie_expiry < datetime.utcnow():
+            logging.info(f'Unredeemed codes found, but login has expired for {user}')
+            message = Messages.LOGIN_EXPIRED
+            updater.bot.send_message(chat_id=user.chat_id, text=message)
+            continue
+
+        redeemed = redeem_user_codes(session, user)
+        if redeemed:
+            message = Messages.CODES_REDEEMED.format('\n'.join(redeemed))
+            updater.bot.send_message(chat_id=user.chat_id, text=message)
+
+    if session.dirty:
+        session.commit()
+    session.close()
+
+
+def scheduled_scan(updater):
+    while True:
+        logging.info('Starting scheduled scan')
+        scan_n_redeem(updater)
+        next_run = datetime.now() + timedelta(hours=1)
+        logging.info(f'Next scan at {next_run.strftime("%Y-%m-%dT%H:%M:%S")}')
+        time.sleep(3600)
