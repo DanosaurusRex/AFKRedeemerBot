@@ -12,7 +12,7 @@ if not os.path.exists(Config.DATA_DIR):
     if not os.path.exists(os.path.dirname(Config.LOG_URI)):
         os.mkdir(os.path.dirname(Config.LOG_URI))
 
-from functions import scrape_wiki, post_login, post_verification, redeem_user_codes, scheduled_scan
+from functions import get_wiki_codes, store_codes, get_cookie_expiry, post_login, redeem_user_codes, scheduled_scan
 from db import Session, User, Code
 
 logging.basicConfig(
@@ -27,42 +27,36 @@ def start(update, context):
 
 
 def scan(update, context):
-    session = Session()
     chat_id = update.effective_chat.id
-    user = session.query(User).filter(User.chat_id == chat_id).first()
-    if not user:
-        update.message.reply_text(Messages.NOT_REGISTERED)
-        session.close()
+
+    with Session() as session:
+        user = session.query(User).filter(User.chat_id == chat_id).first()
+        if not user:
+            update.message.reply_text(Messages.NOT_REGISTERED)
+            return
+        uid = user.uid
+
+    codes = get_wiki_codes()
+    new_codes = store_codes(codes)
+    if not new_codes:
         return
 
-    new = scrape_wiki(session)
-    session.commit()
-    update.message.reply_text(f'{new} codes found.')
+    update.message.reply_text(f'{len(new_codes)} codes found.')
 
-    codes = session.query(Code).filter(~Code.used_by.contains(user),
-                                        Code.expired != True).all()
-    if codes:
-        if user.cookie_expiry < datetime.utcnow():
-            logging.info(f'Unredeemed codes found, but login has expired for {user}')
-            update.message.reply_text(Messages.LOGIN_EXPIRED)
-            session.close()
-            return
-        redeem_user_codes(session, user)
+    if user.cookie_expiry < datetime.utcnow():
+        logging.info(f'Unredeemed codes found, but login has expired')
+        update.message.reply_text(Messages.LOGIN_EXPIRED)
+        return
 
-    session.commit()
-    session.close()
-
+    redeem_user_codes(uid)
 
 def register(update, context):
     """Respond to /register command and prompt to /verify."""
     chat_id = update.effective_chat.id
-    session = Session()
-    if session.query(User).filter(User.chat_id == chat_id).count() > 0:
-        update.message.reply_text(Messages.ALREADY_REGISTERED)
-        session.close()
-        return
-
-    session.close()
+    with Session() as session:
+        if session.query(User).filter(User.chat_id == chat_id).count() > 0:
+            update.message.reply_text(Messages.ALREADY_REGISTERED)
+            return
 
     try:
         uid = int(context.args[0])
@@ -70,78 +64,56 @@ def register(update, context):
         update.message.reply_text('Use /register <UID> to begin.')
         return
     except ValueError:
-        update.message.reply_text('UID must be a number.')
+        update.message.reply_text('UID must be numeric.')
         return
 
-    user = User(uid=uid, chat_id=chat_id)
-    valid = post_login(user)
-    if valid:
-        context.user_data['user'] = user
-        context.user_data['mail_sent'] = True
-        logging.info(f'Registration started for UID: {uid}')
-        update.message.reply_text(Messages.WELCOME.format(uid))
-    else:
-        update.message.reply_text(f'UID {uid} not found. Please try again.')
+    context.user_data['uid'] = uid
+    logging.info(f'Registration started for UID: {uid}')
+    update.message.reply_text(Messages.WELCOME.format(uid))
+
 
 
 def login(update, context):
     chat_id = update.effective_chat.id
-    session = Session()
-    user = session.query(User).filter(User.chat_id == chat_id).first()
+    uid = context.user_data.get('uid')
 
-    if not user:
+    with Session() as session:
+        user = session.query(User).filter(User.chat_id == chat_id).first()
+        if user:
+            uid = user.uid
+
+    if not uid:
         update.message.reply_text(Messages.NOT_REGISTERED)
-        session.close()
         return
 
-    post_login(user)
-    session.add(user)
-    session.commit()
-    logging.info(f'Login started for UID: {user.uid}')
-    update.message.reply_text(Messages.WELCOME.format(user.uid))
-    session.close()
-    context.user_data['mail_sent'] = True
-
-
-def verify(update, context):
-    """Respond to /verify command and redeem codes."""
     try:
-        verification = context.args[0]
-        int(verification)
+        int(context.args[0])
     except IndexError:
-        update.message.reply_text('Use /verify <verification code> to verify.')
+        update.message.reply_text('Use /login <verification code> to log in.')
         return
     except ValueError:
-        update.message.reply_text('Verification code must be a number. Please try again.')
-        return
-    if not context.user_data.get('mail_sent'):
-        update.message.reply_text('No verification mail has been sent.')
+        update.message.reply_text('Verification code must be numeric.')
         return
 
-    session = Session()
-    chat_id = update.effective_chat.id
-
-    user = context.user_data.get('user')
-    if not user:
-        user = session.query(User).filter(User.chat_id == chat_id).first()
-
-    info = post_verification(user, verification)
-    update.message.reply_text(Messages.VERIFY_RESPONSES[info])
-    if info != 'ok':
-        session.close()
+    code = context.args[0]
+    cookies = post_login(uid, code)
+    if not cookies:
+        update.message.reply_text('Login unsuccessful, please try again.')
         return
 
-    session.add(user)
-    session.commit()
+    if context.user_data.get('uid'):
+        del context.user_data['uid']
 
-    if context.user_data.get('user'):
-        del context.user_data['user']
-    if context.user_data.get('mail_sent'):
-        del context.user_data['mail_sent']
+    with Session() as session:
+        user = session.query(User).filter(User.uid == uid).first()
+        if not user:
+            user = User(uid=uid, chat_id=chat_id)
+        user.cookie = cookies
+        user.cookie_expiry = get_cookie_expiry(cookies)
+        session.add(user)
+        session.commit()
 
-    redeemed = redeem_user_codes(session, user)
-    session.commit()
-    session.close()
+    redeemed = redeem_user_codes(uid)
 
     if redeemed:
         message = Messages.CODES_REDEEMED.format('\n'.join(redeemed))
@@ -160,7 +132,6 @@ def main():
 
     # on different commands - answer in Telegram
     dispatcher.add_handler(CommandHandler('register', register))
-    dispatcher.add_handler(CommandHandler('verify', verify))
     dispatcher.add_handler(CommandHandler('scan', scan))
     dispatcher.add_handler(CommandHandler('login', login))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, start))

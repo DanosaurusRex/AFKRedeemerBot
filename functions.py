@@ -11,57 +11,61 @@ from config import Config, Messages
 from db import Session, Code, User
 
 
-def scrape_wiki(session) -> int:
-    """Scrape fandom wiki for codes and add them to DB."""
+def get_wiki_codes() -> list:
+    """Scrapes wiki for current redemption codes
+
+    Returns:
+     - list: Current redemption codes
+    """
     html = requests.get(Config.WIKI_URL)
     soup = BeautifulSoup(html.content, 'html.parser')
-    table = soup.find('tbody')
+    div = soup.find('div', {'class': 'mw-parser-output'})
+    ul = div.find('ul', recursive=False)
 
-    code_re = re.compile(r'>(\S+?)\s*<')
-
-    records = []
-    for row in table.find_all('tr'):
-        cols = row.find_all('td')
-        if cols:
-            reward = cols[1].text.strip()
-            matches = code_re.findall(str(cols[0]))
-            for code in matches:
-                code = code.lower()
-                record = Code(code=code, reward=reward)
-                logging.info(f'Found code: {record}')
-                if session.query(Code).filter(Code.code == code).count():
-                    logging.info(f'Code {record} already in db.')
-                    continue
-                logging.info(f'Adding Code {record} to db')
-                records.append(record)
-    if records:
-        logging.info(f'Adding codes to DB: {records}')
-        session.add_all(records)
-    return len(records)
+    codes = []
+    for li in ul.find_all('li'):
+        split = li.text.split('-')
+        code = split[0].strip().lower()
+        codes.append(code)
+    return codes
 
 
-def generate_payload(endpoint, *args, **kwargs) -> dict:
+def store_codes(codes) -> list:
+    """Store new codes to the database
+
+    Args:
+     - codes (list): Current redemption codes
+
+    Returns:
+     - list: Newly added codes
+    """
+    new_codes = []
+    with Session() as session:
+        for code in codes:
+            if session.query(Code).filter(Code.code == code).count():
+                continue
+            new_code = Code(code=code)
+            session.add(new_code)
+            new_codes.append(code)
+        session.commit()
+    return new_codes
+
+
+
+def generate_payload(endpoint, uid, code, **kwargs) -> dict:
     """Generate the requested payload for endpoint"""
-    if endpoint == 'send-mail':
+    if endpoint == 'verify-afk-code':
         return {
+            "uid": uid,
             "game": "afk",
-            "uid": kwargs['uid'],
-            "title": "Verification Code",
-            "template": "You are currently logging in to an external payment portal. You verification code is: {{code}}. This verification code will expire in 10 minutes. Please use this code to log in. Do not send this code to anyone else. Sender: AFK Arena Team",
-            "sender": "sender"
-        }
-    elif endpoint == 'verify-code':
-        return {
-            "uid": kwargs['uid'],
-            "game": "afk",
-            "code": kwargs['code']
+            "code": code
         }
     elif endpoint == 'consume':
         return {
             "type": "cdkey_web",
             "game": "afk",
-            "uid": kwargs['uid'],
-            "cdkey": kwargs['code']
+            "uid": uid,
+            "cdkey": code
         }
 
 
@@ -81,87 +85,78 @@ def get_cookie_expiry(cookies):
     return min(expiries)
 
 
-def post_login(user) -> bool:
-    response = send_request(Config.SEND_MAIL_URL, uid=user.uid)
+def post_login(uid, code) -> bool:
+    response = send_request(Config.LOGIN_URL, uid=uid, code=code)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
     logging.info(f'Response received: {decoded["info"]}')
     if decoded.get('ret') == 0:
-        user.cookie = response.cookies
-        user.cookie_expiry = get_cookie_expiry(user.cookie)
-        return True
-    return False
+        return response.cookies
 
 
-def post_verification(user, verification) -> str:
-    response = send_request(Config.VERIFY_CODE_URL, uid=user.uid, code=verification, cookies=user.cookie)
-    decoded = json.loads(response.content.decode(encoding='utf-8'))
-    info = decoded.get('info')
-    logging.info(f'Response received: {info}')
-    if info == 'ok':
-        cookie = user.cookie.copy()  # Dumb workaround as SQLAlchemy does not recognise if an existing PickleType is updated.
-        cookie.update(response.cookies)
-        user.cookie = cookie
-        user.cookie_expiry = get_cookie_expiry(user.cookie)
-    return info
-
-
-def post_consume(user, code) -> str:
-    response = send_request(Config.CONSUME_URL, uid=user.uid, code=code.code, cookies=user.cookie)
+def post_consume(uid, code, cookie) -> str:
+    response = send_request(Config.CONSUME_URL, uid=uid, code=code, cookies=cookie)
     decoded = json.loads(response.content.decode(encoding='utf-8'))
     logging.info(f'Response received: {decoded}')
     info = decoded.get('info')
     return info
 
 
-def redeem_user_codes(session, user):
+def redeem_user_codes(uid):
     successfully_redeemed = []
-    codes = session.query(Code).filter(~Code.used_by.contains(user),
-                                        Code.expired != True).all()
-    for code in codes:
-        info = post_consume(user, code)
-        if info in ('err_cdkey_expired', 'err_cdkey_record_not_found'):
-            logging.info(f'Code: {code}, Error: {info}')
-            code.expired = True
-            session.add(code)
-            continue
 
-        user.redeem_code(code)
-        session.add(user)
+    with Session() as session:
+        user = session.query(User).filter(User.uid == uid).first()
+        codes = session.query(Code).filter(~Code.used_by.contains(user),
+                                            Code.expired != True).all()
+        for code in codes:
+            info = post_consume(user.uid, code.code, user.cookie)
+            if info in ('err_cdkey_expired', 'err_cdkey_record_not_found'):
+                logging.info(f'Code: {code}, Error: {info}')
+                code.expired = True
+                session.add(code)
+                continue
 
-        if info == 'ok':
-            logging.info(f'Code: {code} successfully redeemed.')
-            successfully_redeemed.append(code.code)
+            user.redeem_code(code)
+            session.add(user)
+
+            if info == 'ok':
+                logging.info(f'Code: {code} successfully redeemed.')
+                successfully_redeemed.append(code.code)
+
+        session.commit()
+
     return successfully_redeemed
 
 
 def scan_n_redeem(updater):
-    session = Session()
+    codes = get_wiki_codes()
+    store_codes(codes)
 
-    scrape_wiki(session)
-    session.commit()
+    uids = []
+    with Session() as session:
+        users = session.query(User).all()
+        for user in users:
+            logging.info(f'Checking for unredeemed codes for {user}')
+            unredeemed = session.query(Code).filter(~Code.used_by.contains(user),
+                                                    Code.expired != True).all()
+            if not unredeemed:
+                logging.info(f'No unredeemed codes for {user}')
+                continue
 
-    users = session.query(User).all()
-    for user in users:
-        logging.info(f'Checking for unredeemed codes for {user}')
-        unredeemed = session.query(Code).filter(~Code.used_by.contains(user),
-                                                Code.expired != True).all()
-        if not unredeemed:
-            logging.info(f'No unredeemed codes for {user}')
-            continue
+            if user.cookie_expiry < datetime.utcnow():
+                logging.info(f'Unredeemed codes found, but login has expired for {user}')
+                message = Messages.LOGIN_EXPIRED
+                updater.bot.send_message(chat_id=user.chat_id, text=message)
+                continue
 
-        if user.cookie_expiry < datetime.utcnow():
-            logging.info(f'Unredeemed codes found, but login has expired for {user}')
-            message = Messages.LOGIN_EXPIRED
-            updater.bot.send_message(chat_id=user.chat_id, text=message)
-            continue
+            uids.append(user.uid)
 
-        redeemed = redeem_user_codes(session, user)
+    for uid in uids:
+        redeemed = redeem_user_codes(uid)
         if redeemed:
             message = Messages.CODES_REDEEMED.format('\n'.join(redeemed))
             updater.bot.send_message(chat_id=user.chat_id, text=message)
 
-    session.commit()
-    session.close()
 
 
 def scheduled_scan(updater):

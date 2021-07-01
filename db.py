@@ -19,7 +19,6 @@ class Code(Base):
     __tablename__ = 'code'
     id = Column(Integer, primary_key=True)
     code = Column(String, index=True, unique=True)
-    reward = Column(String)
     expired = Column(Boolean, index=True, default=False)
     used_by = relationship('User', secondary=used_codes,
                             back_populates='used', lazy='dynamic')
@@ -42,12 +41,11 @@ class User(Base):
         return f'<User {self.uid}>'
 
     def redeem_code(self, code):
-        if not self.already_used(code):
+        if not self.redeemed(code):
             self.used.append(code)
 
-    def already_used(self, code):
+    def redeemed(self, code):
         return self.used.filter(used_codes.c.code_id == code.id).count() > 0
 
 Base.metadata.create_all(engine)
-Session = sessionmaker()
-Session.configure(bind=engine)
+Session = sessionmaker(engine)
