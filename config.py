@@ -35,7 +35,7 @@ class Messages():
         'I will automatically redeem gift codes I find for AFK Arena.\n' +
         'The following commands are available:\n' +
         '/register <UID> - Register for the service\n' +
-        '/login <verification code> - Prompt a new verification code when needed'
+        '/login <verification code> - Login when needed'
     )
 
     LOGIN_EXPIRED = (
