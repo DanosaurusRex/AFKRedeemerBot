@@ -1,6 +1,7 @@
 services:
   app:
     build: .
+    restart: always
     working_dir: /usr/src/app
     volumes:
       - .:/usr/src/app
