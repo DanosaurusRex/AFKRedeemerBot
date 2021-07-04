@@ -6,14 +6,6 @@ services:
       - .:/usr/src/app
       - data:/usr/src/app/data
       - logs:/usr/src/app/logs
-    deploy:
-      resources:
-        limits:
-          cpus: 0.25
-          memory: 512M
-        reservations:
-          cpus: 0.1
-          memory: 128M
 
 volumes:
   data:
